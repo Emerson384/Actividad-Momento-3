@@ -1,36 +1,66 @@
-import React, { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useFavoritos } from '../context/FavoritosContext';
-
-// Datos de ejemplo para el catálogo de soluciones
-const listaSoluciones = [
-  { id: 1, titulo: 'Visibilidad Total', categoria: 'Monitoreo', descripcion: 'Centraliza procesos, prioridades y métricas para que cada equipo comprenda el estado real del negocio.' },
-  { id: 2, titulo: 'Automatización con Propósito', categoria: 'Automatización', descripcion: 'Reduce tareas repetitivas con reglas inteligentes que mantienen la ejecución constante.' },
-  { id: 3, titulo: 'Análisis Accionable', categoria: 'Analítica', descripcion: 'Transforma indicadores en decisiones claras con reportes visuales diseñados para líderes.' },
-  { id: 4, titulo: 'Integración de Datos', categoria: 'Infraestructura', descripcion: 'Conecta tus herramientas actuales sin fricción en una sola plataforma unificada.' },
-  { id: 5, titulo: 'Alertas y Seguimiento', categoria: 'Monitoreo', descripcion: 'Notificaciones en tiempo real sobre desviaciones o eventos críticos en los proyectos.' },
-  { id: 6, titulo: 'Indicadores Ejecutivos', categoria: 'Analítica', descripcion: 'Dashboards directivos para medir el desempeño global de la organización.' }
-];
+import api, { getApiError } from '../services/api';
 
 function Soluciones() {
-  // 1. Estado local para el buscador
   const [busqueda, setBusqueda] = useState('');
-
-  // 2. Estado global consumido mediante el hook
+  const [soluciones, setSoluciones] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [formError, setFormError] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [newSolution, setNewSolution] = useState({ titulo: '', categoria: '', descripcion: '' });
   const { favoritos, toggleFavorito } = useFavoritos();
 
-  // Filtrado dinámico según lo que el usuario escribe
-  const solucionesFiltradas = listaSoluciones.filter((item) =>
-    item.titulo.toLowerCase().includes(busqueda.toLowerCase()) ||
-    item.descripcion.toLowerCase().includes(busqueda.toLowerCase())
-  );
+  useEffect(() => {
+    let active = true;
+    api.get('/solutions')
+      .then(({ data }) => {
+        if (active) setSoluciones(data);
+      })
+      .catch((requestError) => {
+        if (active) setError(getApiError(requestError));
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => { active = false; };
+  }, []);
+
+  const solucionesFiltradas = useMemo(() => soluciones.filter((item) =>
+    `${item.titulo} ${item.descripcion} ${item.categoria}`.toLowerCase().includes(busqueda.toLowerCase())
+  ), [soluciones, busqueda]);
+
+  const handleCreate = async (event) => {
+    event.preventDefault();
+    setFormError('');
+    setIsSaving(true);
+    try {
+      const { data } = await api.post('/solutions', newSolution);
+      setSoluciones((current) => [data, ...current]);
+      setNewSolution({ titulo: '', categoria: '', descripcion: '' });
+    } catch (requestError) {
+      setFormError(getApiError(requestError));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDelete = async (solutionId) => {
+    setError('');
+    try {
+      await api.delete(`/solutions/${solutionId}`);
+      setSoluciones((current) => current.filter((item) => item.id !== solutionId));
+    } catch (requestError) {
+      setError(getApiError(requestError));
+    }
+  };
 
   return (
     <div className="page-container soluciones-page">
       <section className="section-header">
         <span className="subtitle">Catálogo de Servicios</span>
         <h2>Explora las soluciones de NovaFlow</h2>
-        
-        {/* Buscador interactivo (useState) */}
         <div className="search-bar">
           <input
             type="search"
@@ -43,9 +73,33 @@ function Soluciones() {
         </div>
       </section>
 
-      {/* Grid de tarjetas */}
+      <form className="solution-form" onSubmit={handleCreate}>
+        <div>
+          <span className="subtitle">Administración</span>
+          <h3>Agregar una solución</h3>
+        </div>
+        <label>
+          Título
+          <input required maxLength={100} value={newSolution.titulo} onChange={(event) => setNewSolution({ ...newSolution, titulo: event.target.value })} />
+        </label>
+        <label>
+          Categoría
+          <input required maxLength={60} value={newSolution.categoria} onChange={(event) => setNewSolution({ ...newSolution, categoria: event.target.value })} />
+        </label>
+        <label className="solution-description-field">
+          Descripción
+          <input required maxLength={500} value={newSolution.descripcion} onChange={(event) => setNewSolution({ ...newSolution, descripcion: event.target.value })} />
+        </label>
+        <button type="submit" className="primary-button" disabled={isSaving}>
+          {isSaving ? 'Guardando…' : 'Guardar en MongoDB'}
+        </button>
+        {formError && <p className="form-error" role="alert">{formError}</p>}
+      </form>
+
+      {error && <p className="form-error api-error" role="alert">{error}</p>}
+      {loading && <p className="loading-message" role="status">Cargando catálogo…</p>}
       <div className="cards-grid">
-        {solucionesFiltradas.length > 0 ? (
+        {!loading && solucionesFiltradas.length > 0 ? (
           solucionesFiltradas.map((item) => {
             const esFavorito = favoritos.some((fav) => fav.id === item.id);
             return (
@@ -53,8 +107,6 @@ function Soluciones() {
                 <span className="badge">{item.categoria}</span>
                 <h3>{item.titulo}</h3>
                 <p>{item.descripcion}</p>
-                
-                {/* Botón para interactuar con useContext */}
                 <button
                   type="button"
                   onClick={() => toggleFavorito(item)}
@@ -63,14 +115,17 @@ function Soluciones() {
                 >
                   {esFavorito ? '★ En favoritos' : '☆ Agregar a favoritos'}
                 </button>
+                <button type="button" className="delete-solution" onClick={() => handleDelete(item.id)}>
+                  Eliminar solución
+                </button>
               </div>
             );
           })
-        ) : (
+        ) : (!loading && !error) ? (
           <p className="no-results" role="status">
-            No se encontraron soluciones con "{busqueda}".
+            {busqueda ? `No se encontraron soluciones con "${busqueda}".` : 'Aún no hay soluciones en el catálogo.'}
           </p>
-        )}
+        ) : null}
       </div>
     </div>
   );

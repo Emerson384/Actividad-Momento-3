@@ -1,9 +1,17 @@
 import React from 'react';
-import { Link, NavLink } from 'react-router-dom';
+import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { useFavoritos } from '../context/FavoritosContext';
+import { useAuth } from '../context/AuthContext';
 
 function Header() {
   const { favoritos } = useFavoritos();
+  const { logout, user } = useAuth();
+  const navigate = useNavigate();
+
+  const handleLogout = () => {
+    logout();
+    navigate('/login', { replace: true });
+  };
 
   return (
     <header className="navbar">
@@ -24,9 +32,12 @@ function Header() {
         </NavLink>
       </nav>
 
-      <Link to="/soluciones" className="primary-button small-button">
-        Ver catálogo
-      </Link>
+      <div className="nav-account">
+        <span className="nav-user">{user?.name || user?.email}</span>
+        <button type="button" className="secondary-button logout-button" onClick={handleLogout}>
+          Cerrar sesión
+        </button>
+      </div>
     </header>
   );
 }
